@@ -5,8 +5,8 @@ type Props = {
   onClose: () => void
 }
 
-const BOSS_USER = 'Andrew'
-const BOSS_PASS = 'Julianisthebest'
+const BOSS_USER = import.meta.env.VITE_BOSS_USER as string
+const BOSS_PASS = import.meta.env.VITE_BOSS_PASS as string
 
 export default function LoginModal({ onSuccess, onClose }: Props) {
   const [username, setUsername] = useState('')
