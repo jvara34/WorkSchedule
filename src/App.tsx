@@ -63,6 +63,15 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false)
   const [showCsvImport, setShowCsvImport] = useState(false)
   const [showCoverage, setShowCoverage] = useState(false)
+  const [selectedWorkers, setSelectedWorkers] = useState<Set<string>>(new Set())
+
+  function toggleWorker(name: string) {
+    setSelectedWorkers(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+  }
 
   const activeSchedule = activeTab === 'a' ? scheduleA : scheduleB
 
@@ -242,12 +251,33 @@ export default function App() {
         <span className="legend-item fullday-chip">Full Day</span>
       </div>
 
+      {roster.length > 0 && (
+        <div className="worker-filter-bar">
+          {roster.map(name => {
+            let chipClass = 'worker-chip-neutral'
+            if (selectedWorkers.size > 0) {
+              chipClass = selectedWorkers.has(name) ? 'worker-chip-active' : 'worker-chip-inactive'
+            }
+            return (
+              <button
+                key={name}
+                className={`worker-chip ${chipClass}`}
+                onClick={() => toggleWorker(name)}
+              >
+                {name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <main className="schedule-grid">
         {DAYS.map(({ key, label }) => (
           <DayColumn
             key={key}
             day={label}
             entries={activeSchedule[key]}
+            selectedWorkers={selectedWorkers}
             isBoss={isBoss}
             onAdd={() => setModal({ day: key, editing: null })}
             onEdit={entry => setModal({ day: key, editing: entry })}

@@ -62,6 +62,49 @@ body {
 
 .toggle-inactive:hover { color: #fff; }
 
+/* Worker filter bar */
+.worker-filter-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 24px;
+  background: #fff;
+  border-bottom: 1px solid #E2E8F0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.worker-chip {
+  border: none;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.worker-chip-neutral {
+  background: #F1F5F9;
+  color: #475569;
+  border: 1px solid #CBD5E1;
+}
+
+.worker-chip-active {
+  background: #1E3A5F;
+  color: #fff;
+}
+
+.worker-chip-inactive {
+  background: #F1F5F9;
+  color: #CBD5E1;
+  text-decoration: line-through;
+}
+
+.total-chip {
+  background: #E8F0FE;
+  color: #1E3A5F;
+}
+
 /* Legend */
 .legend {
   display: flex;
@@ -231,6 +274,8 @@ body {
   width: 360px;
   max-width: 95vw;
   box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal h3 { font-size: 16px; color: #1E293B; }
@@ -326,6 +371,10 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding-top: 12px;
 }
 
 /* Schedule tabs */

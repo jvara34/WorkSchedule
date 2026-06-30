@@ -5,22 +5,28 @@ import { shiftDuration, formatHours } from '../utils'
 type Props = {
   day: string
   entries: ShiftEntry[]
+  selectedWorkers: Set<string>
   isBoss: boolean
   onAdd: () => void
   onEdit: (entry: ShiftEntry) => void
   onDelete: (id: string) => void
 }
 
-export default function DayColumn({ day, entries, isBoss, onAdd, onEdit, onDelete }: Props) {
-  const morningCount = entries.filter(e => e.shiftType === 'morning' || e.shiftType === 'fullday').length
-  const afternoonCount = entries.filter(e => e.shiftType === 'afternoon' || e.shiftType === 'fullday').length
-  const totalMinutes = entries.reduce((sum, e) => sum + shiftDuration(e), 0)
+export default function DayColumn({ day, entries, selectedWorkers, isBoss, onAdd, onEdit, onDelete }: Props) {
+  const visibleEntries = selectedWorkers.size === 0
+    ? entries
+    : entries.filter(e => selectedWorkers.has(e.name))
+  const morningCount = visibleEntries.filter(e => e.shiftType === 'morning' || e.shiftType === 'fullday').length
+  const afternoonCount = visibleEntries.filter(e => e.shiftType === 'afternoon' || e.shiftType === 'fullday').length
+  const totalMinutes = visibleEntries.reduce((sum, e) => sum + shiftDuration(e), 0)
+  const totalPeople = new Set(visibleEntries.map(e => e.name)).size
 
   return (
     <div className="day-column">
       <div className="day-header">
         <h2>{day}</h2>
         <div className="shift-counts">
+          <span className="count-chip total-chip">👥 {totalPeople}</span>
           <span className="count-chip morning-chip">☀ Morning: {morningCount}</span>
           <span className="count-chip afternoon-chip">🌆 Afternoon: {afternoonCount}</span>
           {totalMinutes > 0 && (
@@ -31,10 +37,10 @@ export default function DayColumn({ day, entries, isBoss, onAdd, onEdit, onDelet
         </div>
       </div>
       <div className="day-body">
-        {entries.length === 0 && (
+        {visibleEntries.length === 0 && (
           <div className="empty-msg">No shifts scheduled</div>
         )}
-        {entries.map(entry => (
+        {visibleEntries.map(entry => (
           <ShiftCard
             key={entry.id}
             entry={entry}
