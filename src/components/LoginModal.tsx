@@ -1,28 +1,47 @@
 import { useState, type KeyboardEvent } from 'react'
+import { signInWithEmailAndPassword } from 'firebase/auth'
+import { auth, isFirebaseConfigured } from '../firebase'
 
 type Props = {
   onSuccess: () => void
   onClose: () => void
 }
 
-const BOSS_USER = import.meta.env.VITE_BOSS_USER as string
-const BOSS_PASS = import.meta.env.VITE_BOSS_PASS as string
+// Firebase Auth accounts are keyed by email; the boss types a plain username,
+// which maps to the synthetic account email created in the Firebase console.
+const EMAIL_DOMAIN = 'asua-schedule.app'
+
+function usernameToEmail(username: string): string {
+  const u = username.trim().toLowerCase()
+  return u.includes('@') ? u : `${u}@${EMAIL_DOMAIN}`
+}
 
 export default function LoginModal({ onSuccess, onClose }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  function handleSubmit() {
-    if (username === BOSS_USER && password === BOSS_PASS) {
+  async function handleSubmit() {
+    if (loading) return
+    if (!isFirebaseConfigured) {
+      setError('Backend is not configured yet — see src/firebase.ts.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await signInWithEmailAndPassword(auth, usernameToEmail(username), password)
       onSuccess()
-    } else {
+    } catch {
       setError('Incorrect username or password.')
+    } finally {
+      setLoading(false)
     }
   }
 
   function handleKey(e: KeyboardEvent) {
-    if (e.key === 'Enter') handleSubmit()
+    if (e.key === 'Enter') void handleSubmit()
   }
 
   return (
@@ -48,7 +67,9 @@ export default function LoginModal({ onSuccess, onClose }: Props) {
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions" style={{ marginTop: 20 }}>
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSubmit}>Login</button>
+          <button className="btn-primary" onClick={() => void handleSubmit()} disabled={loading}>
+            {loading ? 'Logging in…' : 'Login'}
+          </button>
         </div>
       </div>
     </div>

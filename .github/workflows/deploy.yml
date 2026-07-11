@@ -14,9 +14,6 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run build
-        env:
-          VITE_BOSS_USER: ${{ secrets.VITE_BOSS_USER }}
-          VITE_BOSS_PASS: ${{ secrets.VITE_BOSS_PASS }}
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

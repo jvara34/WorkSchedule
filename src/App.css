@@ -30,6 +30,28 @@ body {
 .app-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
 .subtitle { font-size: 12px; opacity: 0.7; }
 
+.sync-badge {
+  font-size: 11px;
+  font-weight: 600;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.15);
+}
+.sync-badge::before { content: '● '; }
+.sync-live::before { color: #4ADE80; }
+.sync-connecting::before { color: #FACC15; }
+.sync-offline::before { color: #F87171; }
+
+.sync-error-banner {
+  background: #FEE2E2;
+  color: #991B1B;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 24px;
+  border-bottom: 1px solid #FECACA;
+}
+
 .header-right { display: flex; align-items: center; gap: 12px; }
 
 .view-toggle {
@@ -435,6 +457,7 @@ body {
   .icon-btn,
   .modal-backdrop,
   .add-btn,
+  .sync-error-banner,
   .hours-summary { display: none !important; }
 
   body { background: white; }

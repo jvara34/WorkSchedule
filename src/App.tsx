@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
 import type { WeekSchedule, DayKey, ShiftEntry, Roster } from './types'
 import DayColumn from './components/DayColumn'
 import AddShiftModal from './components/AddShiftModal'
@@ -8,6 +9,21 @@ import CsvImportModal from './components/CsvImportModal'
 import CoverageModal from './components/CoverageModal'
 import HoursSummary from './components/HoursSummary'
 import { workerWeeklyMinutes } from './utils'
+import { auth } from './firebase'
+import {
+  EMPTY_SCHEDULE,
+  loadCachedSchedule,
+  loadCachedRoster,
+  loadCachedLabel,
+  writeCache,
+  push,
+  subscribe,
+  sanitizeSchedule,
+  sanitizeRoster,
+  sanitizeLabel,
+  scheduleHasShifts,
+  type AppStateKey,
+} from './persistence'
 import './App.css'
 
 const DAYS: { key: DayKey; label: string }[] = [
@@ -18,46 +34,20 @@ const DAYS: { key: DayKey; label: string }[] = [
   { key: 'friday', label: 'Friday' },
 ]
 
-const EMPTY_SCHEDULE: WeekSchedule = {
-  monday: [], tuesday: [], wednesday: [], thursday: [], friday: [],
-}
-
-function loadSchedule(): WeekSchedule {
-  try {
-    const raw = localStorage.getItem('asua_schedule')
-    return raw ? JSON.parse(raw) : EMPTY_SCHEDULE
-  } catch { return EMPTY_SCHEDULE }
-}
-
-function loadScheduleB(): WeekSchedule {
-  try {
-    const raw = localStorage.getItem('asua_schedule_b')
-    return raw ? JSON.parse(raw) : EMPTY_SCHEDULE
-  } catch { return EMPTY_SCHEDULE }
-}
-
-function loadRoster(): Roster {
-  try {
-    const raw = localStorage.getItem('asua_roster')
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-function loadLabel(key: string, fallback: string): string {
-  return localStorage.getItem(key) ?? fallback
-}
-
 export default function App() {
-  const [scheduleA, setScheduleA] = useState<WeekSchedule>(loadSchedule)
-  const [scheduleB, setScheduleB] = useState<WeekSchedule>(loadScheduleB)
-  const [labelA, setLabelA] = useState(() => loadLabel('asua_label_a', 'Current'))
-  const [labelB, setLabelB] = useState(() => loadLabel('asua_label_b', 'Future'))
+  const [scheduleA, setScheduleA] = useState<WeekSchedule>(() => loadCachedSchedule('schedule_a'))
+  const [scheduleB, setScheduleB] = useState<WeekSchedule>(() => loadCachedSchedule('schedule_b'))
+  const [labelA, setLabelA] = useState(() => loadCachedLabel('label_a', 'Current'))
+  const [labelB, setLabelB] = useState(() => loadCachedLabel('label_b', 'Future'))
   const [activeTab, setActiveTab] = useState<'a' | 'b'>('a')
   const [editingLabel, setEditingLabel] = useState<'a' | 'b' | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
 
-  const [roster, setRoster] = useState<Roster>(loadRoster)
+  const [roster, setRoster] = useState<Roster>(loadCachedRoster)
   const [isBoss, setIsBoss] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [needsSeed, setNeedsSeed] = useState(false)
   const [modal, setModal] = useState<{ day: DayKey; editing: ShiftEntry | null } | null>(null)
   const [showRoster, setShowRoster] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
@@ -68,40 +58,102 @@ export default function App() {
   function toggleWorker(name: string) {
     setSelectedWorkers(prev => {
       const next = new Set(prev)
-      next.has(name) ? next.delete(name) : next.add(name)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
       return next
     })
   }
 
   const activeSchedule = activeTab === 'a' ? scheduleA : scheduleB
 
+  // isBoss mirrors the Firebase Auth session (persisted across reloads).
+  useEffect(() => {
+    return onAuthStateChanged(auth, user => setIsBoss(!!user))
+  }, [])
+
+  // Live sync: apply every server change to state and the localStorage cache.
+  useEffect(() => {
+    return subscribe({
+      onChange: (key, value) => {
+        switch (key) {
+          case 'schedule_a': setScheduleA(sanitizeSchedule(value)); break
+          case 'schedule_b': setScheduleB(sanitizeSchedule(value)); break
+          case 'roster': setRoster(sanitizeRoster(value)); break
+          case 'label_a': setLabelA(sanitizeLabel(value, 'Current')); break
+          case 'label_b': setLabelB(sanitizeLabel(value, 'Future')); break
+          default: return
+        }
+        writeCache(key, key === 'label_a' || key === 'label_b'
+          ? sanitizeLabel(value, key === 'label_a' ? 'Current' : 'Future')
+          : value)
+      },
+      onFirstSnapshot: values => {
+        const serverEmpty = !scheduleHasShifts(sanitizeSchedule(values.schedule_a))
+          && !scheduleHasShifts(sanitizeSchedule(values.schedule_b))
+        const localHasData = scheduleHasShifts(loadCachedSchedule('schedule_a'))
+          || scheduleHasShifts(loadCachedSchedule('schedule_b'))
+        if (serverEmpty && localHasData) setNeedsSeed(true)
+      },
+      onStatus: setSyncStatus,
+    })
+  }, [])
+
+  // One-time migration: offer to upload this device's pre-backend data.
+  useEffect(() => {
+    if (!needsSeed || !isBoss) return
+    const timer = setTimeout(() => {
+      setNeedsSeed(false)
+      if (!window.confirm("The shared server is empty but this device has a saved schedule. Upload this device's schedule to the server so everyone can see it?")) return
+      void pushToServer('schedule_a', scheduleA)
+      void pushToServer('schedule_b', scheduleB)
+      void pushToServer('roster', roster)
+      void pushToServer('label_a', labelA)
+      void pushToServer('label_b', labelB)
+    }, 0)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsSeed, isBoss])
+
+  async function pushToServer(key: AppStateKey, value: unknown) {
+    const { error } = await push(key, value)
+    setSaveError(error
+      ? 'Save failed — this change is only on this device. Check your connection or log in again.'
+      : null)
+  }
+
   function saveScheduleA(next: WeekSchedule) {
     setScheduleA(next)
-    localStorage.setItem('asua_schedule', JSON.stringify(next))
+    writeCache('schedule_a', next)
+    void pushToServer('schedule_a', next)
   }
 
   function saveScheduleB(next: WeekSchedule) {
     setScheduleB(next)
-    localStorage.setItem('asua_schedule_b', JSON.stringify(next))
+    writeCache('schedule_b', next)
+    void pushToServer('schedule_b', next)
   }
 
   function saveActive(next: WeekSchedule) {
-    activeTab === 'a' ? saveScheduleA(next) : saveScheduleB(next)
+    if (activeTab === 'a') saveScheduleA(next)
+    else saveScheduleB(next)
   }
 
   function saveRoster(next: Roster) {
     setRoster(next)
-    localStorage.setItem('asua_roster', JSON.stringify(next))
+    writeCache('roster', next)
+    void pushToServer('roster', next)
   }
 
   function saveLabelA(val: string) {
     setLabelA(val)
-    localStorage.setItem('asua_label_a', val)
+    writeCache('label_a', val)
+    void pushToServer('label_a', val)
   }
 
   function saveLabelB(val: string) {
     setLabelB(val)
-    localStorage.setItem('asua_label_b', val)
+    writeCache('label_b', val)
+    void pushToServer('label_b', val)
   }
 
   function startEditLabel(tab: 'a' | 'b') {
@@ -177,6 +229,9 @@ export default function App() {
         <div className="header-left">
           <h1 className="app-title">Peer Advisors Work Schedule</h1>
           <span className="subtitle">Mon – Fri Weekly View</span>
+          <span className={`sync-badge sync-${syncStatus}`}>
+            {syncStatus === 'live' ? 'Live' : syncStatus === 'connecting' ? 'Connecting…' : 'Offline'}
+          </span>
         </div>
         <div className="header-right">
           {isBoss && (
@@ -196,7 +251,7 @@ export default function App() {
               <button className="btn-secondary" onClick={() => setShowRoster(true)}>
                 Manage Roster
               </button>
-              <button className="btn-secondary" onClick={() => setIsBoss(false)}>
+              <button className="btn-secondary" onClick={() => void signOut(auth)}>
                 Logout
               </button>
             </>
@@ -208,6 +263,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {saveError && <div className="sync-error-banner">{saveError}</div>}
 
       {/* Schedule tabs */}
       <div className="schedule-tabs">
@@ -290,7 +347,7 @@ export default function App() {
 
       {showLogin && (
         <LoginModal
-          onSuccess={() => { setIsBoss(true); setShowLogin(false) }}
+          onSuccess={() => setShowLogin(false)}
           onClose={() => setShowLogin(false)}
         />
       )}
